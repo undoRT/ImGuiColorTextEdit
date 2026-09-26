@@ -2242,7 +2242,43 @@ void TextEditor::ColorizeRange(int aFromLine, int aToLine)
 				first = token_end;
 			}
 		}
+
+		// Re-apply analyzer-provided semantic spans on top of the regex
+		// colorizer. Done here (not in a separate pass) so that a later
+		// re-colorization triggered by an edit cannot drop them.
+		if (!mSemanticTokens.empty())
+		{
+			auto it = mSemanticTokens.find(i);
+			if (it != mSemanticTokens.end())
+			{
+				const int lineLen = (int)line.size();
+				for (const auto& span : it->second)
+				{
+					const int from = std::max(0, span.mColStart);
+					const int to = std::min(lineLen, span.mColEnd);
+					for (int c = from; c < to; ++c)
+						line[c].mColorIndex = span.mColor;
+				}
+			}
+		}
 	}
+}
+
+void TextEditor::SetSemanticToken(int aLine, int aColStart, int aColEnd, PaletteIndex aColor)
+{
+	if (aLine < 0 || aColStart < 0 || aColEnd <= aColStart)
+		return;
+
+	SemanticSpan span;
+	span.mColStart = aColStart;
+	span.mColEnd = aColEnd;
+	span.mColor = aColor;
+	mSemanticTokens[aLine].push_back(span);
+}
+
+void TextEditor::ClearSemanticTokens()
+{
+	mSemanticTokens.clear();
 }
 
 void TextEditor::ColorizeInternal()

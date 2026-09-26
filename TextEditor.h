@@ -36,6 +36,16 @@ public:
 		CurrentLineFill,
 		CurrentLineFillInactive,
 		CurrentLineEdge,
+		// Semantic slots (filled by a host-side language server / analyzer).
+		// They are ordinary palette entries, so a host that never sets a
+		// semantic token simply never reaches these colors.
+		SemVariable,
+		SemParameter,
+		SemFunction,
+		SemType,
+		SemField,     // FUNCTION_BLOCK / PROGRAM instances
+		SemEnumerator,
+		SemConstant,
 		Max
 	};
 
@@ -193,6 +203,32 @@ public:
 
 	void SetErrorMarkers(const ErrorMarkers& aMarkers) { mErrorMarkers = aMarkers; }
 	void SetBreakpoints(const Breakpoints& aMarkers) { mBreakpoints = aMarkers; }
+
+	// ==========================================================================
+	// Semantic tokens
+	//
+	// A host that runs a real analyzer (e.g. a compiler front-end) can push
+	// resolved symbol spans here. They are re-applied by ColorizeRange() after
+	// the regex colorizer runs, so they survive every re-colorization instead
+	// of being wiped by the next keystroke.
+	//
+	// Columns are glyph indices into the line, [aColStart, aColEnd).
+	// Overlapping spans are applied in insertion order, last write wins.
+	// ==========================================================================
+	/// @brief Set semantic spans and repaint (see SetSemanticToken)
+	void SetSemanticToken(int aLine, int aColStart, int aColEnd, PaletteIndex aColor);
+	void ClearSemanticTokens();
+	bool HasSemanticTokens() const { return !mSemanticTokens.empty(); }
+
+	/// @brief Force a full re-colorization pass
+	/// @details Needed after pushing semantic tokens from outside, since the
+	/// incremental colorizer only touches lines that the user edited.
+	void Recolorize() { Colorize(0, -1); }
+
+	/// @brief Convert a screen position into a line/column in the text
+	/// @details Lets a host find the glyph under the mouse, for instance to
+	/// resolve the identifier a Ctrl+Click or a hover refers to.
+	Coordinates ScreenToCoordinates(const ImVec2& aPosition) const { return ScreenPosToCoordinates(aPosition); }
 
 	void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), bool aBorder = false);
 	void SetText(const std::string& aText);
@@ -380,6 +416,13 @@ private:
 	bool mCheckComments;
 	Breakpoints mBreakpoints;
 	ErrorMarkers mErrorMarkers;
+	struct SemanticSpan
+	{
+		int mColStart = 0;
+		int mColEnd = 0;
+		PaletteIndex mColor = PaletteIndex::Default;
+	};
+	std::map<int, std::vector<SemanticSpan>> mSemanticTokens;
 	ImVec2 mCharAdvance;
 	Coordinates mInteractiveStart, mInteractiveEnd;
 	std::string mLineBuffer;
