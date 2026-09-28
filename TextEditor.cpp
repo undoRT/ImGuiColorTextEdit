@@ -320,6 +320,43 @@ void TextEditor::AddUndo(UndoRecord& aValue)
 	++mUndoIndex;
 }
 
+ImVec2 TextEditor::CoordinatesToScreen(const Coordinates& aPosition) const
+{
+	const Coordinates at = SanitizeCoordinates(aPosition);
+
+	// Horizontal: the same per-glyph accumulation ScreenPosToCoordinates walks
+	// forward, so a tab stops a call at the same boundary either way round.
+	float columnX = 0.0f;
+	if (at.mLine >= 0 && at.mLine < (int)mLines.size())
+	{
+		const auto& line = mLines[at.mLine];
+		const int columns = std::min<int>(at.mColumn, (int)line.size());
+		for (int column = 0; column < columns; ++column)
+		{
+			if (line[column].mChar == '\t')
+			{
+				const float spaceSize = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, " ").x;
+				const float tabWidth = (float(mTabSize) * spaceSize);
+				columnX = (1.0f + std::floor((1.0f + columnX) / tabWidth)) * tabWidth;
+			}
+			else
+			{
+				char buf[7];
+				auto d = UTF8CharLength(line[column].mChar);
+				int i = 0;
+				while (i < 6 && d-- > 0)
+					buf[i++] = line[column].mChar;
+				buf[i] = '\0';
+				columnX += ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf).x;
+			}
+		}
+	}
+
+	// The vertical mapping is the identity ScreenPosToCoordinates inverts, so it
+	// only holds against the origin of the frame that was rendered.
+	return ImVec2(mEditorScreenMin.x + mTextStart + columnX, mEditorScreenMin.y + at.mLine * mCharAdvance.y);
+}
+
 TextEditor::Coordinates TextEditor::ScreenPosToCoordinates(const ImVec2& aPosition) const
 {
 	ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -710,55 +747,55 @@ void TextEditor::HandleKeyboardInputs()
 		io.WantCaptureKeyboard = true;
 		io.WantTextInput = true;
 
-		if (!IsReadOnly() && ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Z))
+		if (!IsReadOnly() && ctrl && !shift && !alt && KeyPressed(ImGuiKey_Z))
 			Undo();
-		else if (!IsReadOnly() && !ctrl && !shift && alt && ImGui::IsKeyPressed(ImGuiKey_Backspace))
+		else if (!IsReadOnly() && !ctrl && !shift && alt && KeyPressed(ImGuiKey_Backspace))
 			Undo();
-		else if (!IsReadOnly() && ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Y))
+		else if (!IsReadOnly() && ctrl && !shift && !alt && KeyPressed(ImGuiKey_Y))
 			Redo();
-		else if (!ctrl && !alt && ImGui::IsKeyPressed(ImGuiKey_UpArrow))
+		else if (!ctrl && !alt && KeyPressed(ImGuiKey_UpArrow))
 			MoveUp(1, shift);
-		else if (!ctrl && !alt && ImGui::IsKeyPressed(ImGuiKey_DownArrow))
+		else if (!ctrl && !alt && KeyPressed(ImGuiKey_DownArrow))
 			MoveDown(1, shift);
-		else if (!alt && ImGui::IsKeyPressed(ImGuiKey_LeftArrow))
+		else if (!alt && KeyPressed(ImGuiKey_LeftArrow))
 			MoveLeft(1, shift, ctrl);
-		else if (!alt && ImGui::IsKeyPressed(ImGuiKey_RightArrow))
+		else if (!alt && KeyPressed(ImGuiKey_RightArrow))
 			MoveRight(1, shift, ctrl);
-		else if (!alt && ImGui::IsKeyPressed(ImGuiKey_PageUp))
+		else if (!alt && KeyPressed(ImGuiKey_PageUp))
 			MoveUp(GetPageSize() - 4, shift);
-		else if (!alt && ImGui::IsKeyPressed(ImGuiKey_PageDown))
+		else if (!alt && KeyPressed(ImGuiKey_PageDown))
 			MoveDown(GetPageSize() - 4, shift);
-		else if (!alt && ctrl && ImGui::IsKeyPressed(ImGuiKey_Home))
+		else if (!alt && ctrl && KeyPressed(ImGuiKey_Home))
 			MoveTop(shift);
-		else if (ctrl && !alt && ImGui::IsKeyPressed(ImGuiKey_End))
+		else if (ctrl && !alt && KeyPressed(ImGuiKey_End))
 			MoveBottom(shift);
-		else if (!ctrl && !alt && ImGui::IsKeyPressed(ImGuiKey_Home))
+		else if (!ctrl && !alt && KeyPressed(ImGuiKey_Home))
 			MoveHome(shift);
-		else if (!ctrl && !alt && ImGui::IsKeyPressed(ImGuiKey_End))
+		else if (!ctrl && !alt && KeyPressed(ImGuiKey_End))
 			MoveEnd(shift);
-		else if (!IsReadOnly() && !ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Delete))
+		else if (!IsReadOnly() && !ctrl && !shift && !alt && KeyPressed(ImGuiKey_Delete))
 			Delete();
-		else if (!IsReadOnly() && !ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Backspace))
+		else if (!IsReadOnly() && !ctrl && !shift && !alt && KeyPressed(ImGuiKey_Backspace))
 			Backspace();
-		else if (!ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Insert))
+		else if (!ctrl && !shift && !alt && KeyPressed(ImGuiKey_Insert))
 			mOverwrite ^= true;
-		else if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Insert))
+		else if (ctrl && !shift && !alt && KeyPressed(ImGuiKey_Insert))
 			Copy();
-		else if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_C))
+		else if (ctrl && !shift && !alt && KeyPressed(ImGuiKey_C))
 			Copy();
-		else if (!IsReadOnly() && !ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Insert))
+		else if (!IsReadOnly() && !ctrl && shift && !alt && KeyPressed(ImGuiKey_Insert))
 			Paste();
-		else if (!IsReadOnly() && ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_V))
+		else if (!IsReadOnly() && ctrl && !shift && !alt && KeyPressed(ImGuiKey_V))
 			Paste();
-		else if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_X))
+		else if (ctrl && !shift && !alt && KeyPressed(ImGuiKey_X))
 			Cut();
-		else if (!ctrl && shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Delete))
+		else if (!ctrl && shift && !alt && KeyPressed(ImGuiKey_Delete))
 			Cut();
-		else if (ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_A))
+		else if (ctrl && !shift && !alt && KeyPressed(ImGuiKey_A))
 			SelectAll();
-		else if (!IsReadOnly() && !ctrl && !shift && !alt && ImGui::IsKeyPressed(ImGuiKey_Enter))
+		else if (!IsReadOnly() && !ctrl && !shift && !alt && KeyPressed(ImGuiKey_Enter))
 			EnterCharacter('\n', false);
-		else if (!IsReadOnly() && !ctrl && !alt && ImGui::IsKeyPressed(ImGuiKey_Tab))
+		else if (!IsReadOnly() && !ctrl && !alt && KeyPressed(ImGuiKey_Tab))
 			EnterCharacter('\t', shift);
 
 		if (!IsReadOnly() && !io.InputQueueCharacters.empty())
@@ -888,6 +925,16 @@ void TextEditor::Render()
 	char buf[16];
 	snprintf(buf, 16, " %d ", globalLineMax);
 	mTextStart = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, -1.0f, buf, nullptr, nullptr).x + mLeftMargin;
+
+	// Record the geometry now that every input to it is known, so a host can
+	// place an overlay under the cursor after this call returns: outside the
+	// child window ImGui::GetCursorScreenPos() refers to the parent, and the
+	// scroll and gutter offsets are only readable from in here.
+	mScrollX = scrollX;
+	mScrollY = scrollY;
+	mEditorScreenMin = ImVec2(cursorScreenPos.x - scrollX, cursorScreenPos.y - scrollY);
+	mEditorScreenMax = ImVec2(mEditorScreenMin.x + contentSize.x, mEditorScreenMin.y + contentSize.y);
+	mCursorScreenPos = CoordinatesToScreen(mState.mCursorPosition);
 
 	if (!mLines.empty())
 	{

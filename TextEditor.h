@@ -230,6 +230,82 @@ public:
 	/// resolve the identifier a Ctrl+Click or a hover refers to.
 	Coordinates ScreenToCoordinates(const ImVec2& aPosition) const { return ScreenPosToCoordinates(aPosition); }
 
+	// ==========================================================================
+	// Keys the host is handling itself
+	//
+	// A suggestion list that owns the arrow keys has to take them away from the
+	// editor, or the same key press walks the list and the caret at once. The
+	// editor is muted for a whole frame otherwise, which also swallows the
+	// characters typed in that frame and stops it raising io.WantTextInput, so
+	// the host has to guess whether it still has the keyboard. Blocking the
+	// individual keys instead keeps typing, undo and the shortcuts working, and
+	// leaves the editor fully live on every other frame.
+	//
+	// The block lasts until ClearBlockedKeys(). The host sets it before
+	// Render() and clears it straight after, so a key is only ever spent once.
+	// ==========================================================================
+	/// @brief Take one key away from the editor for the frame
+	void BlockKey(ImGuiKey aKey)
+	{
+		if (aKey >= ImGuiKey_NamedKey_BEGIN && aKey < ImGuiKey_NamedKey_END)
+		{
+			const int index = aKey - ImGuiKey_NamedKey_BEGIN;
+			mBlockedKeys[index / 32] |= 1u << (index % 32);
+		}
+	}
+
+	/// @brief Hand every key back to the editor
+	void ClearBlockedKeys()
+	{
+		for (int word = 0; word < BlockedKeyWords; ++word)
+			mBlockedKeys[word] = 0;
+	}
+
+	/// @brief Whether the host has taken this key
+	bool IsKeyBlocked(ImGuiKey aKey) const
+	{
+		if (aKey < ImGuiKey_NamedKey_BEGIN || aKey >= ImGuiKey_NamedKey_END)
+			return false;
+		const int index = aKey - ImGuiKey_NamedKey_BEGIN;
+		return (mBlockedKeys[index / 32] & (1u << (index % 32))) != 0;
+	}
+
+	/// @brief IsKeyPressed(), but false for a key the host is handling
+	/// @details Used in place of ImGui::IsKeyPressed() throughout
+	/// HandleKeyboardInputs(). Text entry is unaffected: characters arrive
+	/// through io.InputQueueCharacters, not through these checks.
+	bool KeyPressed(ImGuiKey aKey) const { return !IsKeyBlocked(aKey) && ImGui::IsKeyPressed(aKey); }
+
+	// ==========================================================================
+	// Screen geometry of the last frame
+	//
+	// The glyph layout depends on the scroll offset, the gutter width and the
+	// font metrics, all of which are only knowable from inside the editor's own
+	// child window. These are therefore recorded while Render() runs, and read
+	// afterwards by a host that has to place something next to the text, such as
+	// a completion list or a signature hint. They are valid for the frame just
+	// rendered, and before the first Render() they are zero.
+	// ==========================================================================
+	/// @brief Rectangle the editor's text area occupies on screen
+	ImVec2 GetEditorScreenMin() const { return mEditorScreenMin; }
+	ImVec2 GetEditorScreenMax() const { return mEditorScreenMax; }
+
+	/// @brief Screen position of the left edge of the glyph at aPosition
+	/// @details The exact inverse of ScreenToCoordinates, so a host can place an
+	/// overlay under the glyph the cursor is on rather than at a guessed offset.
+	ImVec2 CoordinatesToScreen(const Coordinates& aPosition) const;
+
+	/// @brief Screen position of the cursor glyph, for the frame just rendered
+	ImVec2 GetCursorScreenPos() const { return mCursorScreenPos; }
+
+	/// @brief Distance between two text baselines, for laying out rows
+	float GetLineHeight() const { return mCharAdvance.y; }
+
+	/// @brief Distance the text area is scrolled, to convert a position within
+	///        the buffer into one on screen
+	float GetScrollX() const { return mScrollX; }
+	float GetScrollY() const { return mScrollY; }
+
 	void Render(const char* aTitle, const ImVec2& aSize = ImVec2(), bool aBorder = false);
 	void SetText(const std::string& aText);
 	std::string GetText() const;
@@ -424,9 +500,21 @@ private:
 	};
 	std::map<int, std::vector<SemanticSpan>> mSemanticTokens;
 	ImVec2 mCharAdvance;
+	// Geometry of the frame last rendered, in-class initialised so it does not
+	// disturb the constructor's initialiser order.
+	ImVec2 mEditorScreenMin = ImVec2(0.0f, 0.0f);
+	ImVec2 mEditorScreenMax = ImVec2(0.0f, 0.0f);
+	ImVec2 mCursorScreenPos = ImVec2(0.0f, 0.0f);
+	float mScrollX = 0.0f;
+	float mScrollY = 0.0f;
 	Coordinates mInteractiveStart, mInteractiveEnd;
 	std::string mLineBuffer;
 	uint64_t mStartTime;
+
+	/// Keys the host took for the frame; see BlockKey(). In-class initialised, and
+	/// declared last so it cannot disturb the constructor's initialiser order.
+	enum { BlockedKeyWords = (ImGuiKey_NamedKey_COUNT + 31) / 32 };
+	unsigned int mBlockedKeys[BlockedKeyWords] = {};
 
 	float mLastClick;
 };
